@@ -1,112 +1,35 @@
-# Equivariant Diffusion Policy
-[Project Website](https://equidiff.github.io) | [Paper](https://arxiv.org/pdf/2407.01812) | [Video](https://youtu.be/xIFSx_NVROU?si=MaxsHmih6AnQKAVy)  
-<a href="https://pointw.github.io/">Dian Wang</a><sup>1</sup>, <a href="https://www.linkedin.com/in/stephen-hart-3711666/">Stephen Hart</a><sup>2</sup>, <a href="https://www.linkedin.com/in/surovik/">David Surovik</a><sup>2</sup>, <a href="https://kelestemur.com">Tarik Kelestemur</a><sup>2</sup>, <a href="https://haojhuang.github.io/">Haojie Huang</a><sup>1</sup>, <a href="https://www.linkedin.com/in/haibo-zhao-b68742250/">Haibo Zhao</a><sup>1</sup>, <a href="https://www.linkedin.com/in/mark-yeatman-58a49763/">Mark Yeatman</a><sup>2</sup>, <a href="https://www.robo.guru/">Jiuguang Wang</a><sup>2</sup>, <a href="https://www.robinwalters.com/">Robin Walters</a><sup>1</sup>, <a href="https://helpinghandslab.netlify.app/people/">Robert Platt</a><sup>12</sup>  
-<sup>1</sup>Northeastern Univeristy, <sup>2</sup>Boston Dynamics AI Institute  
-Conference on Robot Learning 2024 (Oral)
-![](img/equi.gif) | 
-## Installation
-1.  Install the following apt packages for mujoco:
-    ```bash
-    sudo apt install -y libosmesa6-dev libgl1-mesa-glx libglfw3 patchelf
-    ```
-1. Install gfortran (dependancy for escnn) 
-    ```bash
-    sudo apt install -y gfortran
-    ```
+# Equivariant Diffusion Policy Reimplementation
 
-1. Install [Mambaforge](https://github.com/conda-forge/miniforge#mambaforge) (strongly recommended) or Anaconda
-1. Clone this repo
-    ```bash
-    git clone https://github.com/pointW/equidiff.git
-    cd equidiff
-    ```
-1. Install environment:
-    Use Mambaforge (strongly recommended):
-    ```bash
-    mamba env create -f conda_environment.yaml
-    conda activate equidiff
-    ```
-    or use Anaconda (not recommended): 
-    ```bash
-    conda env create -f conda_environment.yaml
-    conda activate equidiff
-    ```
-1. Install mimicgen:
-    ```bash
-    cd ..
-    git clone https://github.com/NVlabs/mimicgen_environments.git
-    cd mimicgen_environments
-    # This project was developed with Mimicgen v0.1.0. The latest version should work fine, but it is not tested
-    git checkout 081f7dbbe5fff17b28c67ce8ec87c371f32526a9
-    pip install -e .
-    cd ../equidiff
-    ```
-1. Make sure mujoco version is 2.3.2 (required by mimicgen)
-    ```bash
-    pip list | grep mujoco
-    ```
+This project is a reimplementation of **Equivariant Diffusion Policy** based on the work by Wang et al. (2024) [[Paper](https://arxiv.org/abs/2407.01812)].  
+It focuses on leveraging SO(2) equivariance to improve the sample efficiency and generalization of diffusion models in robotic behavior cloning tasks.
 
-## Dataset
-### Download Dataset
-Download dataset from MimicGen's hugging face: https://huggingface.co/datasets/amandlek/mimicgen_datasets/tree/main/core  
-Make sure the dataset is kept under `/path/to/equidiff/data/robomimic/datasets/[dataset]/[dataset].hdf5`
+## Project Highlights
+- Reimplemented **Equivariant Encoder** and **Equivariant Diffusion U-Net**.
+- Studied the theoretical foundation of SO(2)-equivariant diffusion models.
+- Evaluated on the **Three-Piece Assembly D2** task from the MimicGen benchmark.
+- Achieved stable convergence and task completion with voxel-based observations.
 
-### Generating Voxel and Point Cloud Observation
+## Architecture
 
-```bash
-# Template
-python equi_diffpo/scripts/dataset_states_to_obs.py --input data/robomimic/datasets/[dataset]/[dataset].hdf5 --output data/robomimic/datasets/[dataset]/[dataset]_voxel.hdf5 --num_workers=[n_worker]
-# Replace [dataset] and [n_worker] with your choices.
-# E.g., use 24 workers to generate point cloud and voxel observation for stack_d1
-python equi_diffpo/scripts/dataset_states_to_obs.py --input data/robomimic/datasets/stack_d1/stack_d1.hdf5 --output data/robomimic/datasets/stack_d1/stack_d1_voxel.hdf5 --num_workers=24
-```
+![Architecture](img/architecture.png)
 
-### Convert Action Space in Dataset
-The downloaded dataset has a relative action space. To train with absolute action space, the dataset needs to be converted accordingly
-```bash
-# Template
-python equi_diffpo/scripts/robomimic_dataset_conversion.py -i data/robomimic/datasets/[dataset]/[dataset].hdf5 -o data/robomimic/datasets/[dataset]/[dataset]_abs.hdf5 -n [n_worker]
-# Replace [dataset] and [n_worker] with your choices.
-# E.g., convert stack_d1 (non-voxel) with 12 workers
-python equi_diffpo/scripts/robomimic_dataset_conversion.py -i data/robomimic/datasets/stack_d1/stack_d1_voxel.hdf5 -o data/robomimic/datasets/stack_d1/stack_d1_abs.hdf5 -n 12
-# E.g., convert stack_d1_voxel (voxel) with 12 workers
-python equi_diffpo/scripts/robomimic_dataset_conversion.py -i data/robomimic/datasets/stack_d1/stack_d1_voxel.hdf5 -o data/robomimic/datasets/stack_d1/stack_d1_voxel_abs.hdf5 -n 12
-```
+*Figure 1: Overall model architecture. Red components indicate the parts reimplemented in this project.*
 
-## Training with image observation
-To train Equivariant Diffusion Policy (with absolute pose control) in Stack D1 task:
-```bash
-# Make sure you have the non-voxel converted dataset with absolute action space from the previous step 
-python train.py --config-name=train_equi_diffusion_unet_abs task_name=stack_d1 n_demo=100
-```
-To train with relative pose control instead:
-```bash
-python train.py --config-name=train_equi_diffusion_unet_rel task_name=stack_d1 n_demo=100
-```
-To train in other tasks, replace `stack_d1` with `stack_three_d1`, `square_d2`, `threading_d2`, `coffee_d2`, `three_piece_assembly_d2`, `hammer_cleanup_d1`, `mug_cleanup_d1`, `kitchen_d1`, `nut_assembly_d0`, `pick_place_d0`, `coffee_preparation_d1`. Notice that the corresponding dataset should be downloaded already. If training absolute pose control, the data conversion is also needed.
+## Training Curves
 
-To run environments on CPU (to save GPU memory), use `osmesa` instead of `egl` through `MUJOCO_GL=osmesa PYOPENGL_PLATFORM=osmesa`, e.g.,
-```bash
-MUJOCO_GL=osmesa PYOPENGL_PLATFORM=osmesa python train.py --config-name=train_equi_diffusion_unet_abs task_name=stack_d1
-```
+![Training Results](img/results.png)
 
-Equivariant Diffusion Policy requires around 22G GPU memory to run with batch size of 128 (default). To reduce the GPU usage, consider training with smaller batch size and/or reducing the hidden dimension
-```bash
-# to train with batch size of 64 and hidden dimension of 64
-MUJOCO_GL=osmesa PYOPENGL_PLATTFORM=osmesa python train.py --config-name=train_equi_diffusion_unet_abs task_name=stack_d1 policy.enc_n_hidden=64 dataloader.batch_size=64
-```
+*Figure 2: Training curves. Loss decreases and stabilizes after around 50,000 steps, showing successful convergence.*
 
-## Training with voxel observation
-To train Equivariant Diffusion Policy (with absolute pose control) in Stack D1 task:
-```bash
-# Make sure you have the voxel converted dataset with absolute action space from the previous step 
-python train.py --config-name=train_equi_diffusion_unet_voxel_abs task_name=stack_d1 n_demo=100
-```
+## Qualitative Results
 
-## License
-This repository is released under the MIT license. See [LICENSE](LICENSE) for additional details.
+| Step | Visualization | Description |
+|:---:|:---:|:---|
+| 1,000 steps | ![1000 Steps](img/1000.png) | The agent struggles to initiate a grasp. |
+| 30,000 steps | ![30000 Steps](img/30k.png) | The agent can do the baby step. |
+| 50,000 steps | ![50000 Steps](img/50k.png) | The agent successfully completes the full assembly sequence. |
 
-## Acknowledgement
-* Our repo is built upon the origional [Diffusion Policy](https://github.com/real-stanford/diffusion_policy)
-* Our ACT baseline is adaped from its [original repo](https://github.com/tonyzhaozh/act)
-* Our DP3 baseline is adaped from its [original repo](https://github.com/YanjieZe/3D-Diffusion-Policy)
+## Summary
+The results demonstrate that integrating SO(2) symmetry through equivariant architectures significantly improves learning efficiency for robotic tasks with rotational symmetry.  
+Future work may extend these methods to more complex tasks and settings with imperfect symmetries.
+
