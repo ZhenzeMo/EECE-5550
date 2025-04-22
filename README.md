@@ -32,6 +32,7 @@ It focuses on leveraging SO(2) equivariance to improve the sample efficiency and
 ### 1,000 Training Steps
 
 ![30000 Steps](img/30k.gif)
+![](img/equi.gif) | 
 
 *At 30,000 training steps, the agent can do the baby step.*
 
