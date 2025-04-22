@@ -1,102 +1,62 @@
 from typing import Dict, Tuple
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import models as vision_models
 from einops import rearrange, reduce
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-
-from equi_diffpo.model.common.normalizer import LinearNormalizer
-from equi_diffpo.policy.base_image_policy import BaseImagePolicy
-from equi_diffpo.common.robomimic_config_util import get_robomimic_config
-from equi_diffpo.model.diffusion.mask_generator import LowdimMaskGenerator
-from equi_diffpo.model.common.rotation_transformer import RotationTransformer
-from robomimic.algo import algo_factory
-from robomimic.algo.algo import PolicyAlgo
-import robomimic.utils.obs_utils as ObsUtils
-from robomimic.models.base_nets import SpatialSoftmax
-try:
-    import robomimic.models.base_nets as rmbn
-    if not hasattr(rmbn, 'CropRandomizer'):
-        raise ImportError("CropRandomizer is not in robomimic.models.base_nets")
-except ImportError:
-    import robomimic.models.obs_core as rmbn
-import equi_diffpo.model.vision.crop_randomizer as dmvc
-from equi_diffpo.common.pytorch_util import dict_apply, replace_submodules
-
-import numpy as np
-import itertools
-from einops import rearrange, repeat
 from equi_diffpo.model.equi.equi_obs_encoder import EquivariantObsEncVoxel
 from equi_diffpo.model.equi.equi_conditional_unet1d import EquiDiffusionUNet
-# from diffusion_policy.model.equi.equi_conditional_unet1d_2 import D4ConditionalUnet1D
+from equi_diffpo.model.diffusion.mask_generator import LowdimMaskGenerator
+from equi_diffpo.model.common.normalizer import LinearNormalizer
 from equi_diffpo.model.vision.voxel_rot_randomizer import VoxelRotRandomizer
-
+from equi_diffpo.policy.base_image_policy import BaseImagePolicy
+from equi_diffpo.common.pytorch_util import dict_apply
 
 class DiffusionEquiUNetPolicyVoxel(BaseImagePolicy):
+    """
+    Equivariant Diffusion Policy model using voxel observations.
+    """
     def __init__(self, 
-            shape_meta: dict,
-            noise_scheduler: DDPMScheduler,
-            # task params
-            horizon, 
-            n_action_steps, 
-            n_obs_steps,
-            num_inference_steps=None,
-            # image
-            crop_shape=(58, 58, 58),
-            # arch
-            N=8,
-            enc_n_hidden=64,
-            diffusion_step_embed_dim=256,
-            down_dims=(256,512,1024),
-            kernel_size=5,
-            n_groups=8,
-            cond_predict_scale=True,
-            rot_aug=False,
-            initialize=True,
-            color=True,
-            depth=True,
-            # parameters passed to step
-            **kwargs):
+                 shape_meta: dict,
+                 noise_scheduler: DDPMScheduler,
+                 horizon: int, 
+                 n_action_steps: int, 
+                 n_obs_steps: int,
+                 num_inference_steps: int = None,
+                 crop_shape: Tuple[int, int, int] = (58, 58, 58),
+                 N: int = 8,
+                 enc_n_hidden: int = 64,
+                 diffusion_step_embed_dim: int = 256,
+                 down_dims: Tuple[int] = (256, 512, 1024),
+                 kernel_size: int = 5,
+                 n_groups: int = 8,
+                 cond_predict_scale: bool = True,
+                 rot_aug: bool = False,
+                 initialize: bool = True,
+                 color: bool = True,
+                 depth: bool = True,
+                 **kwargs):
         super().__init__()
 
-        # parse shape_meta
-        action_shape = shape_meta['action']['shape']
-        assert len(action_shape) == 1
-        action_dim = action_shape[0]
+        # Parse action dimension
+        self.action_dim = shape_meta['action']['shape'][0]
 
-        # # get raw robomimic config
-        # config = get_robomimic_config(
-        #     algo_name='bc_rnn',
-        #     hdf5_type='image',
-        #     task_name='square',
-        #     dataset_type='ph')
+        # Set observation channels
+        self.obs_channel = (4 if color and depth else 3 if color else 1)
 
-        # # init global state
-        # ObsUtils.initialize_obs_utils_with_config(config)
-
-        if color and depth:
-            obs_channel = 4
-        elif color:
-            obs_channel = 3
-        elif depth:
-            obs_channel = 1  
-
+        # Initialize encoders and diffusion model
         self.enc = EquivariantObsEncVoxel(
-            obs_shape=(obs_channel, 64, 64, 64), 
+            obs_shape=(self.obs_channel, 64, 64, 64), 
             crop_shape=crop_shape, 
             n_hidden=enc_n_hidden, 
             N=N,
             initialize=initialize,
-)
-        
-        obs_feature_dim = enc_n_hidden
-        global_cond_dim = obs_feature_dim * n_obs_steps
-        
+        )
+
+        global_cond_dim = enc_n_hidden * n_obs_steps
+
         self.diff = EquiDiffusionUNet(
             act_emb_dim=64,
-            local_cond_dim=None,
             global_cond_dim=global_cond_dim,
             diffusion_step_embed_dim=diffusion_step_embed_dim,
             down_dims=down_dims,
@@ -105,150 +65,114 @@ class DiffusionEquiUNetPolicyVoxel(BaseImagePolicy):
             cond_predict_scale=cond_predict_scale,
             N=N,
         )
-        
 
-        print("Enc params: %e" % sum(p.numel() for p in self.enc.parameters()))
-        print("Diff params: %e" % sum(p.numel() for p in self.diff.parameters()))
-
-        self.mask_generator = LowdimMaskGenerator(
-            action_dim=action_dim,
-            obs_dim=0,
-            max_n_obs_steps=n_obs_steps,
-            fix_obs_steps=True,
-            action_visible=False
-        )
+        # Utilities
+        self.mask_generator = LowdimMaskGenerator(self.action_dim, 0, n_obs_steps, fix_obs_steps=True, action_visible=False)
         self.normalizer = LinearNormalizer()
         self.rot_randomizer = VoxelRotRandomizer()
 
+        # Hyperparameters
         self.horizon = horizon
-        self.action_dim = action_dim
         self.n_action_steps = n_action_steps
         self.n_obs_steps = n_obs_steps
         self.crop_shape = crop_shape
-        self.obs_feature_dim = obs_feature_dim
+        self.obs_feature_dim = enc_n_hidden
         self.rot_aug = rot_aug
-
         self.kwargs = kwargs
 
         self.noise_scheduler = noise_scheduler
-        if num_inference_steps is None:
-            num_inference_steps = noise_scheduler.config.num_train_timesteps
-        self.num_inference_steps = num_inference_steps
+        self.num_inference_steps = num_inference_steps or noise_scheduler.config.num_train_timesteps
 
-    # ========= training  ============
+    # ================= Training =================
     def set_normalizer(self, normalizer: LinearNormalizer):
+        """
+        Load pre-trained normalizer.
+        """
         self.normalizer.load_state_dict(normalizer.state_dict())
 
-    def get_optimizer(
-            self, 
-            weight_decay: float, 
-            learning_rate: float, 
-            betas: Tuple[float, float],
-            eps: float
-        ) -> torch.optim.Optimizer:
-        optimizer = torch.optim.AdamW(
-            self.parameters(), weight_decay=weight_decay, lr=learning_rate, betas=betas, eps=eps
-        )
-        return optimizer
-    
-    # ========= inference  ============
-    def conditional_sample(self, 
-            condition_data, condition_mask,
-            local_cond=None, global_cond=None,
-            generator=None,
-            # keyword arguments to scheduler.step
-            **kwargs
-            ):
-        model = self.diff
-        scheduler = self.noise_scheduler
+    def get_optimizer(self, weight_decay: float, learning_rate: float, betas: Tuple[float, float], eps: float) -> torch.optim.Optimizer:
+        """
+        Initialize AdamW optimizer.
+        """
+        return torch.optim.AdamW(self.parameters(), lr=learning_rate, betas=betas, eps=eps, weight_decay=weight_decay)
 
-        trajectory = torch.randn(
-            size=condition_data.shape, 
-            dtype=condition_data.dtype,
-            device=condition_data.device,
-            generator=generator)
-    
-        # set step values
+    def compute_loss(self, batch) -> torch.Tensor:
+        """
+        Compute MSE loss for training diffusion model.
+        """
+        nobs = self.normalizer.normalize(batch['obs'])
+        nactions = self.normalizer['action'].normalize(batch['action'])
+
+        if self.rot_aug:
+            nobs, nactions = self.rot_randomizer(nobs, nactions)
+
+        B, T = nactions.shape[:2]
+        global_cond = self.enc(nobs).reshape(B, -1)
+
+        condition_mask = self.mask_generator(nactions.shape)
+        noise = torch.randn_like(nactions)
+        timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (B,), device=nactions.device).long()
+
+        noisy_actions = self.noise_scheduler.add_noise(nactions, noise, timesteps)
+        noisy_actions[condition_mask] = nactions[condition_mask]
+
+        pred = self.diff(noisy_actions, timesteps, global_cond=global_cond)
+        target = noise if self.noise_scheduler.config.prediction_type == 'epsilon' else nactions
+
+        loss = F.mse_loss(pred, target, reduction='none')
+        loss = (loss * (~condition_mask).float()).mean(dim=list(range(1, loss.ndim))).mean()
+
+        return loss
+
+    # ================= Inference =================
+    def conditional_sample(self, condition_data, condition_mask, local_cond=None, global_cond=None, generator=None, **kwargs):
+        """
+        Perform conditional denoising diffusion sampling.
+        """
+        model, scheduler = self.diff, self.noise_scheduler
+        traj = torch.randn_like(condition_data, generator=generator)
+
         scheduler.set_timesteps(self.num_inference_steps)
 
         for t in scheduler.timesteps:
-            # 1. apply conditioning
-            trajectory[condition_mask] = condition_data[condition_mask]
+            traj[condition_mask] = condition_data[condition_mask]
+            model_output = model(traj, t, local_cond=local_cond, global_cond=global_cond)
+            traj = scheduler.step(model_output, t, traj, generator=generator, **kwargs).prev_sample
 
-            # 2. predict model output
-            model_output = model(trajectory, t, 
-                local_cond=local_cond, global_cond=global_cond)
-
-            # 3. compute previous image: x_t -> x_t-1
-            trajectory = scheduler.step(
-                model_output, t, trajectory, 
-                generator=generator,
-                **kwargs
-                ).prev_sample
-        
-        # finally make sure conditioning is enforced
-        trajectory[condition_mask] = condition_data[condition_mask]        
-
-        return trajectory
-
+        traj[condition_mask] = condition_data[condition_mask]
+        return traj
 
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
-        obs_dict: must include "obs" key
-        result: must include "action" key
+        Predict future actions given the current observation.
         """
-        assert 'past_action' not in obs_dict # not implemented yet
-        # normalize input
-        # TODO:
+        assert 'past_action' not in obs_dict  # not supported yet
+
         if 'agentview_image' in obs_dict:
             del obs_dict['agentview_image']
+        
         obs_dict['voxels'][:, :, 1:] /= 255.0
         nobs = self.normalizer.normalize(obs_dict)
-        value = next(iter(nobs.values()))
-        B, To = value.shape[:2]
-        T = self.horizon
-        Da = self.action_dim
-        Do = self.obs_feature_dim
-        To = self.n_obs_steps
+        B = next(iter(nobs.values())).shape[0]
+        
+        global_cond = self.enc(nobs).reshape(B, -1)
 
-        # build input
-        device = self.device
-        dtype = self.dtype
-
-        # handle different ways of passing observation
-        local_cond = None
-        global_cond = None
-        # condition through global feature
-        # this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
-        nobs_features = self.enc(nobs)
-        # reshape back to B, Do
-        global_cond = nobs_features.reshape(B, -1)
-        # empty data for action
-        cond_data = torch.zeros(size=(B, T, Da), device=device, dtype=dtype)
+        cond_data = torch.zeros((B, self.horizon, self.action_dim), device=self.device, dtype=self.dtype)
         cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
 
-        # run sampling
-        nsample = self.conditional_sample(
-            cond_data, 
-            cond_mask,
-            local_cond=local_cond,
-            global_cond=global_cond,
-            **self.kwargs)
-        
-        # unnormalize prediction
-        naction_pred = nsample[...,:Da]
+        sampled_traj = self.conditional_sample(cond_data, cond_mask, global_cond=global_cond, **self.kwargs)
+        naction_pred = sampled_traj[..., :self.action_dim]
         action_pred = self.normalizer['action'].unnormalize(naction_pred)
 
-        # get action
-        start = To - 1
+        start = self.n_obs_steps - 1
         end = start + self.n_action_steps
-        action = action_pred[:,start:end]
-        
-        result = {
+        action = action_pred[:, start:end]
+
+        return {
             'action': action,
             'action_pred': action_pred
         }
-        return result
+
 
     # ========= training  ============
     def set_normalizer(self, normalizer: LinearNormalizer):

@@ -6,9 +6,9 @@ name: equi_diff_voxel
 _target_: equi_diffpo.workspace.train_equi_workspace.TrainEquiWorkspace
 
 shape_meta: ${task.shape_meta}
-exp_name: "default"
+exp_name: "EECE5550"
 
-task_name: stack_d1
+task_name: three_piece_assembly_d2
 n_demo: 200
 horizon: 16
 n_obs_steps: 1
@@ -38,11 +38,11 @@ policy:
   n_action_steps: ${eval:'${n_action_steps}+${n_latency_steps}'}
   n_obs_steps: ${n_obs_steps}
   num_inference_steps: 100
-  crop_shape: [58, 58, 58]
+  crop_shape: [48, 48, 48]
   # crop_shape: null
   diffusion_step_embed_dim: 128
-  enc_n_hidden: 128
-  down_dims: [256, 512, 1024]
+  enc_n_hidden: 96
+  down_dims: [128, 256, 512]
   kernel_size: 5
   n_groups: 8
   cond_predict_scale: True
@@ -60,16 +60,16 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 64
-  num_workers: 16
+  batch_size: 32
+  num_workers: 4
   shuffle: True
   pin_memory: True
   persistent_workers: True
   drop_last: true
 
 val_dataloader:
-  batch_size: 64
-  num_workers: 16
+  batch_size: 32
+  num_workers: 4
   shuffle: False
   pin_memory: True
   persistent_workers: True
