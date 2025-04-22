@@ -25,19 +25,19 @@ It focuses on leveraging SO(2) equivariance to improve the sample efficiency and
 
 ### 1,000 Training Steps
 
-![](img/1000.gif) | 
+![](img/1000.gif) 
 
 *At 1,000 training steps, the agent struggles to initiate a grasp.*
 
 ### 30,000 Training Steps
 
-![](img/30k.gif) | 
+![](img/30k.gif)
 
 *At 30,000 training steps, the agent can do the baby step.*
 
 ### 50,000 Training Steps
 
-![](img/50k.gif) | 
+![](img/50k.gif)
 
 *At 50,000 training steps, the agent successfully completes the full assembly sequence.*
 
