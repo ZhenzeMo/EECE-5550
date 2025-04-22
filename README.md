@@ -23,13 +23,24 @@ It focuses on leveraging SO(2) equivariance to improve the sample efficiency and
 
 ## Qualitative Results
 
-| Step | Visualization | Description |
-|:---:|:---:|:---|
-| 1,000 steps | ![1000 Steps](img/1000.gif) | The agent struggles to initiate a grasp. |
-| 30,000 steps | ![30000 Steps](img/30k.gif) | The agent can do the baby step. |
-| 50,000 steps | ![50000 Steps](img/50k.gif) | The agent successfully completes the full assembly sequence. |
+### 1,000 Training Steps
+
+![1000 Steps](img/1000.gif)
+
+*At 1,000 training steps, the agent struggles to initiate a grasp.*
+
+### 1,000 Training Steps
+
+![30000 Steps](img/30k.gif)
+
+*At 30,000 training steps, the agent can do the baby step.*
+
+### 50,000 Training Steps
+
+![50000 Steps](img/50k.gif)
+
+*At 50,000 training steps, the agent successfully completes the full assembly sequence.*
 
 ## Summary
 The results demonstrate that integrating SO(2) symmetry through equivariant architectures significantly improves learning efficiency for robotic tasks with rotational symmetry.  
 Future work may extend these methods to more complex tasks and settings with imperfect symmetries.
-
