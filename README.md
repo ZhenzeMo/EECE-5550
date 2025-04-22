@@ -22,7 +22,7 @@ It focuses on leveraging SO(2) equivariance to improve the sample efficiency and
 *Figure 2: Training curves. Loss decreases and stabilizes after around 50,000 steps, showing successful convergence.*
 
 ## Qualitative Results
-
+> **Note**: Click the images below to see the animations!
 ### 1,000 Training Steps
 
 ![](img/1000.gif) 
